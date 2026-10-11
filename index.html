@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The League Network</title>
+<style>
+:root{--bg:#0b1020;--panel:#141c30;--panel2:#1b2740;--text:#f3f6ff;--muted:#9ba8c4;--accent:#f5b942;--line:#2a3652;--green:#58d6a3}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top right,#1d3150 0,transparent 32%),var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+a{color:var(--accent)}.wrap{max-width:1120px;margin:auto;padding:24px}.top{display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:20px}
+.brand{font-size:1.55rem;font-weight:900;letter-spacing:.04em}.brand span{color:var(--accent)}.tag{color:var(--muted);font-size:.9rem}
+nav{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 24px}nav button,.btn{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:999px;padding:9px 14px;cursor:pointer;font-weight:700}nav button.active{background:var(--accent);color:#171717;border-color:var(--accent)}
+.hero{background:linear-gradient(125deg,#202e49,#121a2b 70%);border:1px solid var(--line);padding:26px;border-radius:22px;margin-bottom:18px}.eyebrow{color:var(--accent);font-size:.76rem;font-weight:900;letter-spacing:.15em;text-transform:uppercase}.hero h1{font-size:clamp(2rem,5vw,3.4rem);line-height:1.03;margin:10px 0}.hero p{max-width:680px;color:#c1cbe0}.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}.card{grid-column:span 4;background:var(--panel);border:1px solid var(--line);padding:18px;border-radius:16px;min-width:0}.card.wide{grid-column:span 8}.card.full{grid-column:1/-1}.card h2,.card h3{margin:0 0 8px}.muted{color:var(--muted)}.pill{display:inline-block;padding:3px 9px;border-radius:999px;background:#283752;color:#dce7ff;font-size:.78rem;font-weight:800}.story{border-top:1px solid var(--line);padding:16px 0}.story:first-of-type{border-top:0}.story h3{margin:5px 0}.story p{white-space:pre-wrap}.small{font-size:.88rem}.empty{border:1px dashed #46536f;border-radius:14px;padding:22px;color:var(--muted)}.status{font-size:.85rem;color:var(--muted);margin-top:14px}.error{color:#ffb4a8}.tablewrap{overflow:auto}table{border-collapse:collapse;width:100%;min-width:450px}td,th{text-align:left;padding:10px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-size:.8rem;text-transform:uppercase}footer{margin-top:28px;padding:18px 0;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+@media(max-width:760px){.card,.card.wide{grid-column:1/-1}.wrap{padding:16px}.hero{padding:20px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top"><div><div class="brand">THE LEAGUE <span>NETWORK</span></div><div class="tag">Your league. Your headlines. Questionable journalism.</div></div><div class="pill">SLEEPER LEAGUE COVERAGE</div></header>
+<nav id="nav"><button class="active" data-view="home">Home</button><button data-view="stories">Newsroom</button><button data-view="rankings">Power Rankings</button><button data-view="awards">Awards</button><button data-view="lines">Matchups & Lines</button></nav>
+<section class="hero"><div class="eyebrow">Commissioner’s desk</div><h1 id="heroTitle">The league is in session.</h1><p id="heroSubtitle">Weekly recaps, power rankings, awards, and fake betting lines for the group chat.</p><div class="status" id="contentStatus">Loading approved stories from the content sheet…</div></section>
+<main id="content"></main>
+<footer>Unofficial fantasy-football entertainment. Betting lines are fictional and for fun only. Content is published from the approved Google Sheets feed; draft content stays off this website until you approve it.</footer>
+</div>
+<script>
+const CONFIG = {
+  sleeperLeagueId: "1391153611873992704",
+  // After creating your Google Sheet, paste the published CSV URL for its Published tab here.
+  publishedCsvUrl: ""
+};
+const state = {view:"home", stories:[], league:null, users:[], rosters:[], matchups:[], players:{}};
+const content = document.getElementById("content");
+const statusEl = document.getElementById("contentStatus");
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function csvParse(text){
+ const rows=[];let row=[],field="",q=false;
+ for(let i=0;i<text.length;i++){const c=text[i],n=text[i+1];
+  if(c==='"'&&q&&n==='"'){field+='"';i++}
+  else if(c==='"')q=!q;
+  else if(c===','&&!q){row.push(field);field=""}
+  else if((c==='\n'||c==='\r')&&!q){if(c==='\r'&&n==='\n')i++;row.push(field);if(row.some(x=>x.trim()))rows.push(row);row=[];field=""}
+  else field+=c;
+ }
+ if(field.length||row.length){row.push(field);rows.push(row)}
+ if(!rows.length)return [];
+ const heads=rows.shift().map(x=>x.trim().toLowerCase());
+ return rows.map(r=>Object.fromEntries(heads.map((h,i)=>[h,(r[i]||"").trim()])));
+}
+async function loadPublished(){
+ if(!CONFIG.publishedCsvUrl){statusEl.textContent="Content sheet not connected yet. The site is ready for your approved Google Sheets feed.";return;}
+ try{
+  const res=await fetch(CONFIG.publishedCsvUrl,{cache:"no-store"});
+  if(!res.ok)throw new Error("HTTP "+res.status);
+  const rows=csvParse(await res.text());
+  state.stories=rows.filter(r=>(r.status||"published").toLowerCase()==="published" && (r.title||r.body));
+  statusEl.textContent=`Loaded ${state.stories.length} approved item(s) from Google Sheets.`;
+  render();
+ }catch(e){statusEl.innerHTML='<span class="error">Could not load the content sheet. Check the published CSV URL and sharing settings.</span>';}
+}
+async function loadSleeper(){
+ try{
+  const base="https://api.sleeper.app/v1";
+  const [league,users,rosters]=await Promise.all([
+   fetch(`${base}/league/${CONFIG.sleeperLeagueId}`).then(r=>r.json()),
+   fetch(`${base}/league/${CONFIG.sleeperLeagueId}/users`).then(r=>r.json()),
+   fetch(`${base}/league/${CONFIG.sleeperLeagueId}/rosters`).then(r=>r.json())
+  ]);
+  state.league=league;state.users=users;state.rosters=rosters;
+  const week=league.settings?.leg||1;
+  const [matchups,players]=await Promise.all([
+   fetch(`${base}/league/${CONFIG.sleeperLeagueId}/matchups/${week}`).then(r=>r.json()),
+   fetch(`${base}/players/nfl`).then(r=>r.json())
+  ]);
+  state.matchups=matchups;state.players=players;
+  render();
+ }catch(e){console.warn("Sleeper data unavailable",e);}
+}
+function teamName(rosterId){
+ const r=state.rosters.find(x=>x.roster_id===rosterId);
+ const u=state.users.find(x=>x.user_id===r?.owner_id);
+ return u?.metadata?.team_name||u?.display_name||u?.username||`Team ${rosterId}`;
+}
+function points(r){return Number(r.settings?.fpts||0)+Number(r.settings?.fpts_decimal||0)/100;}
+function render(){
+ const view=state.view;
+ document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("active",b.dataset.view===view));
+ const stories=state.stories;
+ if(view==="stories"||view==="home"){
+  const relevant=stories.filter(s=>!s.type||s.type.toLowerCase()==="story"||s.type.toLowerCase()==="recap"||s.type.toLowerCase()==="headline");
+  const list=relevant.map(s=>`<article class="story"><span class="pill">${esc(s.category||s.type||"NEWS")}</span><h3>${esc(s.title)}</h3><div class="muted small">${esc(s.subtitle||"")}</div><p>${esc(s.body||"")}</p></article>`).join("");
+  content.innerHTML=view==="home"?`<div class="grid"><section class="card wide"><h2>Latest from the newsroom</h2>${list||'<div class="empty">No approved stories yet. Add a story to the Published tab in your Google Sheet to make it appear here.</div>'}</section><section class="card"><h2>League pulse</h2>${leagueSummary()}</section><section class="card full"><h2>This week’s approved content</h2>${stories.length?stories.slice(0,5).map(s=>`<div class="story"><span class="pill">${esc(s.type||"POST")}</span><h3>${esc(s.title)}</h3><p>${esc(s.body||"")}</p></div>`).join(""):'<div class="empty">Approved articles, recaps, and announcements will show here.</div>'}</section></div>`:`<section class="card full"><h2>Newsroom</h2>${list||'<div class="empty">No approved stories yet. Drafts should remain in your private Drafts tab until you are ready to publish.</div>'}</section>`;
+ } else if(view==="rankings"){
+  const sorted=[...state.rosters].sort((a,b)=>points(b)-points(a));
+  content.innerHTML=`<section class="card full"><h2>Power Rankings</h2><p class="muted">Current-season points scored, as a simple baseline. Your commissioner-written rankings can be published as a story from Google Sheets.</p>${sorted.length?`<div class="tablewrap"><table><thead><tr><th>Rank</th><th>Team</th><th>Points scored</th></tr></thead><tbody>${sorted.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(teamName(r.roster_id))}</td><td>${points(r).toFixed(2)}</td></tr>`).join("")}</tbody></table></div>`:'<div class="empty">Sleeper standings could not be loaded right now.</div>'}</section>`;
+ } else if(view==="awards"){
+  const list=stories.filter(s=>(s.type||"").toLowerCase()==="award");
+  content.innerHTML=`<section class="card full"><h2>Weekly Awards</h2>${list.length?list.map(s=>`<article class="story"><span class="pill">${esc(s.category||"AWARD")}</span><h3>${esc(s.title)}</h3><p>${esc(s.body||"")}</p></article>`).join(""):'<div class="empty">Publish awards by adding rows with type “award” to the Published tab. You control every winner and write-up.</div>'}</section>`;
+ } else {
+  const groups={};state.matchups.forEach(m=>(groups[m.matchup_id]??=[]).push(m));
+  const cards=Object.values(groups).map(g=>{if(g.length<2)return "";let a=g[0],b=g[1];return `<div class="card"><span class="pill">WEEK ${esc(state.league?.settings?.leg||"—")}</span><h3>${esc(teamName(a.roster_id))} <span class="muted">vs.</span> ${esc(teamName(b.roster_id))}</h3><p><strong>${(a.points||0).toFixed(1)}</strong> — <strong>${(b.points||0).toFixed(1)}</strong></p><div class="muted small">Live Sleeper matchup data when available. Fictional odds can be written and approved in the sheet.</div></div>`}).join("");
+  content.innerHTML=`<section class="grid">${cards||'<div class="card full"><h2>Matchups & Lines</h2><div class="empty">Current matchup data is not available. Check that the league is public and Sleeper’s API is reachable.</div></div>'}</section><section class="card full" style="margin-top:14px"><h2>Commissioner’s Lines</h2><p class="muted">Add a “lines” item to the Published tab to post your approved fake odds, picks, and over/under predictions.</p>${stories.filter(s=>(s.type||"").toLowerCase()==="lines").map(s=>`<article class="story"><h3>${esc(s.title)}</h3><p>${esc(s.body||"")}</p></article>`).join("")}</section>`;
+ }
+}
+function leagueSummary(){
+ if(!state.league)return '<p class="muted">Connecting to Sleeper…</p>';
+ return `<p><strong>${esc(state.league.name||"Fantasy League")}</strong></p><p class="muted">Week ${esc(state.league.settings?.leg||"—")} · ${state.rosters.length||"—"} teams found</p><p class="small">League data is read from Sleeper. Articles and editorial choices come from your approved sheet.</p>`;
+}
+document.querySelectorAll("nav button").forEach(b=>b.addEventListener("click",()=>{state.view=b.dataset.view;render()}));
+render();loadPublished();loadSleeper();
+</script>
+</body>
+</html>
