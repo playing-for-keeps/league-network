@@ -275,8 +275,6 @@ function render(){
   const relevant=stories.filter(s=>!s.type||s.type.toLowerCase()==="story"||s.type.toLowerCase()==="recap"||s.type.toLowerCase()==="headline");
   const list=relevant.map(s=>`<article class="story"><span class="pill">${esc(s.category||s.type||"NEWS")}</span><h3>${esc(s.title)}</h3><div class="muted small">${esc(s.subtitle||"")}</div><p>${esc(s.body||"")}</p></article>`).join("");
   content.innerHTML=view==="home"?`<div class="grid"><section class="card wide"><h2>Latest from the newsroom</h2>${list||'<div class="empty">No approved stories yet. Add a story to the Published tab in your Google Sheet to make it appear here.</div>'}</section><section class="card"><h2>League pulse</h2>${leagueSummary()}</section><section class="card full"><h2>This week’s approved content</h2>${stories.length?stories.slice(0,5).map(s=>`<div class="story"><span class="pill">${esc(s.type||"POST")}</span><h3>${esc(s.title)}</h3><p>${esc(s.body||"")}</p></div>`).join(""):'<div class="empty">Approved articles, recaps, and announcements will show here.</div>'}</section></div>`:`<section class="card full"><h2>Newsroom</h2>${list||'<div class="empty">No approved stories yet. Drafts should remain in your private Drafts tab until you are ready to publish.</div>'}</section>`;
- } else if(view==="rankings"){
- 
 } else if(view==="rankings"){
   // Use the latest approved Power Rankings article from Google Sheets.
   const rankingArticles = state.stories.filter(s =>
