@@ -26,7 +26,7 @@ nav{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 24px}nav button,.btn{backg
 const CONFIG = {
   sleeperLeagueId: "1391153611873992704",
   // After creating your Google Sheet, paste the published CSV URL for its Published tab here.
-  publishedCsvUrl: ""
+  publishedCsvUrl: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQTQiZ3GUa1mmN5FJO85vWMJuUEBkg3zJ-_5iE8VI_dv1p7jcuNHiGglDe5pLVWO3fA60Bhcvd5ACl-/pub?gid=1759773159&single=true&output=csv"
 };
 const state = {view:"home", stories:[], league:null, users:[], rosters:[], matchups:[], players:{}};
 const content = document.getElementById("content");
@@ -51,7 +51,29 @@ async function loadPublished(){
  try{
   const res=await fetch(CONFIG.publishedCsvUrl,{cache:"no-store"});
   if(!res.ok)throw new Error("HTTP "+res.status);
-  const rows=csvParse(await res.text());
+  
+const rows = csvParse(await res.text()).map(r => {
+  const rawType = (r["content type"] || r.type || "").trim().toLowerCase();
+
+  const typeMap = {
+    "awards": "award",
+    "weekly awards": "award",
+    "betting lines": "lines",
+    "matchups & lines": "lines",
+    "waiver report": "story",
+    "waiver analysis": "story",
+    "power rankings": "story",
+    "weekly recap": "recap"
+  };
+
+  return {
+    ...r,
+    title: r.headline || r.title || "",
+    type: typeMap[rawType] || rawType || "story",
+    category: r["content type"] || r.category || "NEWS"
+  };
+});
+
   state.stories=rows.filter(r=>(r.status||"published").toLowerCase()==="published" && (r.title||r.body));
   statusEl.textContent=`Loaded ${state.stories.length} approved item(s) from Google Sheets.`;
   render();
