@@ -19,6 +19,10 @@ nav{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 24px}nav button,.btn{backg
 <header class="top"><div><div class="brand">THE LEAGUE <span>NETWORK</span></div><div class="tag">Your league. Your headlines. Questionable journalism.</div></div><div class="pill">SLEEPER LEAGUE COVERAGE</div></header>
 <nav id="nav"><button class="active" data-view="home">Home</button><button data-view="stories">Newsroom</button><button data-view="rankings">Power Rankings</button><button data-view="awards">Awards</button><button data-view="lines">Matchups & Lines</button></nav>
 <section class="hero"><div class="eyebrow">Commissioner’s desk</div><h1 id="heroTitle">The league is in session.</h1><p id="heroSubtitle">Weekly recaps, power rankings, awards, and fake betting lines for the group chat.</p><div class="status" id="contentStatus">Loading approved stories from the content sheet…</div></section>
+  <button class="btn" id="exportDataBtn" type="button"
+        style="margin-top:12px">
+  Download League Data
+</button>
 <main id="content"></main>
 <footer>Unofficial fantasy-football entertainment. Betting lines are fictional and for fun only. Content is published from the approved Google Sheets feed; draft content stays off this website until you approve it.</footer>
 </div>
@@ -97,6 +101,166 @@ async function loadSleeper(){
   render();
  }catch(e){console.warn("Sleeper data unavailable",e);}
 }
+  
+async function exportLeagueData() {
+  const btn = document.getElementById("exportDataBtn");
+  const originalText = btn.textContent;
+
+  try {
+    btn.disabled = true;
+    btn.textContent = "Collecting league data...";
+
+    const base = "https://api.sleeper.app/v1";
+    const leagueId = CONFIG.sleeperLeagueId;
+
+    async function getJSON(url) {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error("Sleeper request failed: " + response.status);
+      }
+      return response.json();
+    }
+
+    // Refresh the core league information.
+    const [league, users, rosters] = await Promise.all([
+      getJSON(`${base}/league/${leagueId}`),
+      getJSON(`${base}/league/${leagueId}/users`),
+      getJSON(`${base}/league/${leagueId}/rosters`)
+    ]);
+
+    const currentWeek = Math.max(
+      1, Number(league.settings?.leg || 1)
+    );
+
+    // Retrieve each week's matchups and transactions.
+    const weeks = [];
+    for (let week = 1; week <= currentWeek; week++) {
+      btn.textContent = `Collecting week ${week} of ${currentWeek}...`;
+
+      const [matchups, transactions] = await Promise.all([
+        getJSON(`${base}/league/${leagueId}/matchups/${week}`),
+        getJSON(`${base}/league/${leagueId}/transactions/${week}`)
+      ]);
+
+      weeks.push({ week, matchups, transactions });
+    }
+
+    // Identify all players referenced in the collected data.
+    const playerIds = new Set();
+
+    for (const roster of rosters) {
+      for (const id of [
+        ...(roster.players || []),
+        ...(roster.starters || []),
+        ...(roster.reserve || []),
+        ...(roster.taxi || [])
+      ]) {
+        if (id) playerIds.add(String(id));
+      }
+    }
+
+    for (const item of weeks) {
+      for (const matchup of item.matchups || []) {
+        for (const id of matchup.players || []) {
+          if (id) playerIds.add(String(id));
+        }
+      }
+
+      for (const tx of item.transactions || []) {
+        Object.keys(tx.adds || {}).forEach(id => playerIds.add(id));
+        Object.keys(tx.drops || {}).forEach(id => playerIds.add(id));
+      }
+    }
+
+    // Keep only relevant player details, not the entire NFL database.
+    const players = {};
+    for (const id of playerIds) {
+      const p = state.players[id];
+      if (p) {
+        players[id] = {
+          player_id: id,
+          name: p.full_name || [p.first_name, p.last_name]
+            .filter(Boolean).join(" "),
+          position: p.position || "",
+          team: p.team || "",
+          status: p.status || "",
+          injury_status: p.injury_status || ""
+        };
+      }
+    }
+
+    const rosterData = rosters.map(r => ({
+      roster_id: r.roster_id,
+      owner_id: r.owner_id,
+      team_name: teamName(r.roster_id),
+      record: {
+        wins: r.settings?.wins ?? 0,
+        losses: r.settings?.losses ?? 0,
+        ties: r.settings?.ties ?? 0
+      },
+      points_for: points(r),
+      points_against:
+        Number(r.settings?.fpts_against || 0) +
+        Number(r.settings?.fpts_against_decimal || 0) / 100,
+      players: r.players || [],
+      starters: r.starters || [],
+      reserve: r.reserve || [],
+      taxi: r.taxi || []
+    }));
+
+    const exportData = {
+      exported_at: new Date().toISOString(),
+      season: league.season,
+      current_week: currentWeek,
+      league: {
+        league_id: league.league_id,
+        name: league.name,
+        season: league.season,
+        status: league.status,
+        scoring_settings: league.scoring_settings,
+        roster_positions: league.roster_positions,
+        settings: league.settings
+      },
+      managers: users.map(u => ({
+        user_id: u.user_id,
+        username: u.username,
+        display_name: u.display_name,
+        team_name: u.metadata?.team_name || ""
+      })),
+      standings_and_rosters: rosterData,
+      weekly_data: weeks,
+      players
+    };
+
+    const blob = new Blob(
+      [JSON.stringify(exportData, null, 2)],
+      { type: "application/json" }
+    );
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download =
+      `league-network-season-${league.season}-week-${currentWeek}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+
+    btn.textContent = "Download Complete!";
+  } catch (error) {
+    console.error("League export failed:", error);
+    alert(
+      "The export failed. Please try again. " +
+      "If it continues, check the browser console for details."
+    );
+    btn.textContent = "Export Failed — Try Again";
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => {
+      btn.textContent = originalText;
+    }, 3000);
+  }
+}
+
 function teamName(rosterId){
  const r=state.rosters.find(x=>x.roster_id===rosterId);
  const u=state.users.find(x=>x.user_id===r?.owner_id);
@@ -128,6 +292,8 @@ function leagueSummary(){
  return `<p><strong>${esc(state.league.name||"Fantasy League")}</strong></p><p class="muted">Week ${esc(state.league.settings?.leg||"—")} · ${state.rosters.length||"—"} teams found</p><p class="small">League data is read from Sleeper. Articles and editorial choices come from your approved sheet.</p>`;
 }
 document.querySelectorAll("nav button").forEach(b=>b.addEventListener("click",()=>{state.view=b.dataset.view;render()}));
+  document.getElementById("exportDataBtn")
+  .addEventListener("click", exportLeagueData);
 render();loadPublished();loadSleeper();
 </script>
 </body>
